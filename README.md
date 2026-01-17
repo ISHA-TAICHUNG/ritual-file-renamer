@@ -1,16 +1,90 @@
-# Ritual File Renamer 法事檔案自動配對命名工具
+# 🕯️ Ritual File Renamer 法事檔案自動配對命名工具
 
 自動化處理法事錄影與個人照片的配對與重命名工具。
 
-## 問題背景
+---
+
+## ⚡ 快速開始
+
+### 1. 下載程式
+
+```bash
+git clone https://github.com/ISHA-TAICHUNG/ritual-file-renamer.git
+```
+
+或直接下載 ZIP 檔案解壓縮。
+
+### 2. 安裝系統依賴（首次使用）
+
+開啟「終端機」，貼上以下指令：
+
+```bash
+# 安裝 Homebrew（如果還沒裝）
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# 安裝所有依賴
+brew install python@3.11 tesseract tesseract-lang ffmpeg
+```
+
+### 3. 啟動程式
+
+**雙擊 `start.command` 即可！**
+
+首次啟動會自動建立虛擬環境並安裝 Python 套件。
+
+---
+
+## 📖 使用教學
+
+### GUI 介面說明
+
+```
+┌─────────────────────────────────────────────────┐
+│  🕯️ 法事檔案自動配對命名工具                      │
+├─────────────────────────────────────────────────┤
+│  輸入資料夾: [選擇包含照片和影片的資料夾]            │
+│  輸出資料夾: [選擇輸出位置]                        │
+├─────────────────────────────────────────────────┤
+│  配對預覽                                        │
+│  ┌───────────────────────────────────────────┐  │
+│  │ [001]                                      │  │
+│  │   📷 IMG_0001.jpg                          │  │
+│  │      時間: 2024-01-15 09:30:00 [exif]      │  │
+│  │   🎬 IMG_0002.MOV                          │  │
+│  │      時間: 2024-01-15 09:32:15 [video_meta]│  │
+│  └───────────────────────────────────────────┘  │
+├─────────────────────────────────────────────────┤
+│  [═══════════════░░░░░░░░] 50%                  │
+│              [👁️ 預覽] [▶️ 執行]                  │
+└─────────────────────────────────────────────────┘
+```
+
+### 操作步驟
+
+1. **選擇輸入資料夾** - 點擊「選擇」按鈕，選擇包含照片和影片的資料夾
+2. **選擇輸出資料夾** - 程式會自動建議一個輸出位置，也可以自行選擇
+3. **預覽配對** - 點擊「預覽」按鈕查看配對結果
+4. **執行重命名** - 確認無誤後點擊「執行」
+
+### 時間來源說明
+
+| 標記 | 說明 |
+|------|------|
+| `[exif]` | 從照片 EXIF 讀取的原始拍攝時間 ✅ |
+| `[video_meta]` | 從影片 metadata 讀取的原始建立時間 ✅ |
+| `[filesystem]` | 從檔案系統讀取的時間（可能是下載時間）⚠️ |
+
+> 💡 **提示**：透過 LINE 下載檔案時，選擇「原始畫質」傳送可保留原始時間資訊。
+
+---
+
+## 🔧 問題背景
 
 每天處理 100+ 筆法事錄影，需要將：
 - 個人照片（含英文姓名）
 - 對應的法事錄影
 
 配對並重新命名成相同檔名，方便回傳給客戶。
-
-## 設計流程
 
 ### 作業流程
 
@@ -30,7 +104,7 @@
 7. 輸出到雲端資料夾
 ```
 
-### 照片格式
+### 照片格式要求
 
 - 左下角有黑底白字標籤
 - 第一行：英文姓名（全大寫）
@@ -42,92 +116,117 @@ CHANG CHIA HAO
 2535/05/16
 ```
 
-### 技術架構
+---
 
+## 📁 輸入輸出範例
+
+**輸入資料夾：**
 ```
-Python
-├── pytesseract (OCR) - 提取照片上的英文姓名
-├── OpenCV (影像處理) - 圖片預處理、相似度比對
-├── ffmpeg (影片幀擷取) - 從影片擷取畫面
-└── Pillow (圖片處理) - 基本圖片操作
-```
-
-### 參考 Skills（來自 SkillsMP）
-
-| Skill | 來源 | 功能 | 用途 |
-|-------|------|------|------|
-| `markitdown` | davila7/claude-code-templates | OCR + 文件轉換 | 讀取照片上的英文姓名 |
-| `ai-multimodal` | mrgoonie/claudekit-skills | Gemini API 多媒體處理 | 進階方案：更精準的圖片理解 |
-| `video-frames` | clawdbot/clawdbot | 影片幀擷取 | 從錄影檔抓取開頭畫面 |
-| `invoice-organizer` | ComposioHQ/awesome-claude-skills | 自動提取資訊→改名 | 參考其改名邏輯 |
-
-> **建議方案**：使用 `pytesseract` 做本地 OCR（免費、不需 API key）
-
-### 配對邏輯
-
-| 優先級 | 方法 | 說明 |
-|--------|------|------|
-| 1 | 時間順序 | 照片和影片交錯，依時間戳配對 |
-| 2 | 影像相似度 | 備用方案，處理例外情況 |
-
-### 檔案結構
-
-```
-輸入資料夾/
+input/
 ├── IMG_0001.jpg  (拍照：照片01)
 ├── IMG_0002.MOV  (錄影：法事01)
 ├── IMG_0003.jpg  (拍照：照片02)
 ├── IMG_0004.MOV  (錄影：法事02)
 └── ...
+```
 
-輸出資料夾/
+**輸出資料夾：**
+```
+output/
 ├── CHANG_CHIA_HAO_001.jpg
-├── CHANG_CHIA_HAO_001.mp4
+├── CHANG_CHIA_HAO_001.mov
 ├── WANG_XIAO_MING_002.jpg
-├── WANG_XIAO_MING_002.mp4
+├── WANG_XIAO_MING_002.mov
 └── ...
 ```
 
-## 待實作
+---
 
-- [ ] 基本框架
-- [ ] OCR 功能（提取英文姓名）
-- [ ] 時間戳排序配對
-- [ ] 檔案重命名
-- [ ] 輸出到指定資料夾
-- [ ] 錯誤處理與日誌
-- [ ] GUI 介面（可選）
+## ❓ 常見問題
 
-## 環境需求
+### Q: 雙擊 start.command 沒反應？
 
-- **作業系統**：macOS
-- **Python**：3.10+
-- **Tesseract OCR**
-- **ffmpeg**
+**A:** 可能是權限問題。開啟終端機執行：
+```bash
+chmod +x /path/to/start.command
+```
 
-### 安裝指令（macOS）
+### Q: 提示「無法打開，因為它來自未識別的開發者」？
+
+**A:** 按住 Control 鍵點擊 `start.command`，選擇「打開」。
+
+### Q: OCR 辨識失敗？
+
+**A:** 
+1. 確認照片上的文字清晰、對比度夠高
+2. 確認已安裝語言包：`brew install tesseract-lang`
+3. 辨識失敗的檔案會使用序號命名（如 `UNKNOWN_001`）
+
+### Q: LINE 下載的檔案時間不對？
+
+**A:** 
+- LINE 傳送時選擇「原始畫質」可保留 metadata
+- 如果已經是壓縮過的檔案，程式會使用檔案系統時間
+- 建議使用 AirDrop 或傳輸線直接傳輸
+
+---
+
+## 🛠️ 進階設定
+
+### 命令列模式
+
+如果偏好使用命令列：
 
 ```bash
-# 安裝 Homebrew（如果還沒裝）
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+cd ritual-file-renamer
+source venv/bin/activate
+python main.py ./input ./output
 
-# 安裝依賴
-brew install tesseract tesseract-lang ffmpeg python@3.11
+# 預覽模式（不實際執行）
+python main.py ./input ./output --dry-run
+```
 
+### 手動安裝
+
+```bash
 # 建立虛擬環境
 python3 -m venv venv
 source venv/bin/activate
 
-# 安裝 Python 套件（待實作）
+# 安裝依賴
 pip install -r requirements.txt
+
+# 啟動 GUI
+python gui.py
 ```
 
-## 使用方式
+---
 
-待實作...
-
-## 注意事項
+## ⚠️ 注意事項
 
 1. 作業時不能中途拍其他東西（會打亂順序）
 2. 重錄時要刪掉失敗的影片
 3. 使用同一支 iPhone 作業
+4. 原始檔案不會被刪除（只複製）
+
+---
+
+## 📋 技術規格
+
+- **作業系統**：macOS
+- **Python**：3.10+
+- **依賴**：Tesseract OCR、ffmpeg
+
+### Python 套件
+- `pytesseract` - OCR 文字辨識
+- `Pillow` - 圖片處理
+- `opencv-python` - 影像處理
+- `exifread` - EXIF 讀取
+- `customtkinter` - 現代化 GUI
+- `tqdm` - 進度條
+
+---
+
+## 📄 授權
+
+MIT License

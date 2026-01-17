@@ -13,5 +13,11 @@ Pillow>=10.0.0
 # File Operations
 pathlib2>=2.3.7; python_version < "3.4"
 
+# Metadata
+exifread>=3.0.0  # EXIF reading for original capture time
+
+# GUI
+customtkinter>=5.2.0  # Modern tkinter UI
+
 # Utilities
 tqdm>=4.66.0  # Progress bar

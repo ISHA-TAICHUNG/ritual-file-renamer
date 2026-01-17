@@ -38,4 +38,5 @@ Thumbs.db
 # Project specific
 input/
 output/
+測試/
 *.log
