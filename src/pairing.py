@@ -33,10 +33,19 @@ class MediaFile:
 
 @dataclass
 class FilePair:
-    """配對的照片和影片"""
+    """配對的照片和影片（1:1）"""
     photo: MediaFile
     video: MediaFile
     sequence: int  # 序號
+    sub_sequence: str = ''  # 子序號（a, b, c...）用於 1:N
+
+
+@dataclass
+class FileGroup:
+    """一張照片對應多個影片（1:N）"""
+    photo: MediaFile
+    videos: list[tuple[MediaFile, float]]  # [(影片, 相似度), ...]
+    sequence: int
 
 
 def scan_media_files(input_dir: str | Path) -> list[MediaFile]:
@@ -110,25 +119,46 @@ def pair_files(media_files: list[MediaFile], mode: str = 'time') -> list[FilePai
     
     if mode == 'image':
         # 圖像比對配對：擷取影片第一幀，和照片做相似度比對
+        # 支援 1:N 配對（一張照片配多個影片）
         from .matching import match_photos_to_videos
         
         photo_paths = [f.path for f in photos]
         video_paths = [f.path for f in videos]
         
-        matches = match_photos_to_videos(photo_paths, video_paths)
+        matches = match_photos_to_videos(photo_paths, video_paths, multi_video=True)
         
         # 建立 path -> MediaFile 的映射
         photo_map = {f.path: f for f in photos}
         video_map = {f.path: f for f in videos}
         
-        for i, (photo_path, video_path, score) in enumerate(matches, 1):
-            pair = FilePair(
-                photo=photo_map[photo_path],
-                video=video_map[video_path],
-                sequence=i
-            )
-            pairs.append(pair)
-            print(f"  配對 {i}: {photo_path.name} + {video_path.name} (相似度: {score:.2f})")
+        sequence = 1
+        for photo_path, video_list in matches:
+            # video_list: [(video_path, score), ...]
+            if len(video_list) == 1:
+                # 1:1 配對
+                video_path, score = video_list[0]
+                pair = FilePair(
+                    photo=photo_map[photo_path],
+                    video=video_map[video_path],
+                    sequence=sequence
+                )
+                pairs.append(pair)
+                print(f"  配對 {sequence}: {photo_path.name} + {video_path.name} ({score:.0%})")
+            else:
+                # 1:N 配對
+                sub_labels = 'abcdefghijklmnopqrstuvwxyz'
+                for idx, (video_path, score) in enumerate(video_list):
+                    sub = sub_labels[idx] if idx < len(sub_labels) else str(idx + 1)
+                    pair = FilePair(
+                        photo=photo_map[photo_path],
+                        video=video_map[video_path],
+                        sequence=sequence,
+                        sub_sequence=sub
+                    )
+                    pairs.append(pair)
+                    print(f"  配對 {sequence}{sub}: {photo_path.name} + {video_path.name} ({score:.0%})")
+            
+            sequence += 1
     
     elif mode == 'order':
         # 順序配對：依檔名排序後配對

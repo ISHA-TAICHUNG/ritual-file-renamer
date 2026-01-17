@@ -148,39 +148,87 @@ def find_best_video_match(photo_path: Path, video_paths: list[Path]) -> tuple[Op
 def match_photos_to_videos(
     photo_paths: list[Path],
     video_paths: list[Path],
-    threshold: float = 0.1
-) -> list[tuple[Path, Path, float]]:
+    threshold: float = 0.1,
+    multi_video: bool = True
+) -> list[tuple[Path, list[tuple[Path, float]]]]:
     """
     用圖像相似度配對所有照片和影片
+    
+    支援 1:N 配對（一張照片配多個影片）
     
     Args:
         photo_paths: 照片路徑列表
         video_paths: 影片路徑列表
         threshold: 最低相似度門檻
+        multi_video: 是否允許一張照片配多個影片
         
     Returns:
-        [(照片路徑, 影片路徑, 相似度), ...]
+        [(照片路徑, [(影片路徑, 相似度), ...]), ...]
     """
-    matches = []
-    used_videos = set()
+    # 先計算每張照片對所有影片的相似度
+    photo_video_scores = {}
     
     for photo_path in photo_paths:
-        # 排除已配對的影片
-        available_videos = [v for v in video_paths if v not in used_videos]
-        
-        if not available_videos:
-            print(f"警告: 照片 {photo_path.name} 沒有可配對的影片")
+        photo_img = load_image(photo_path)
+        if photo_img is None:
             continue
         
-        best_video, score = find_best_video_match(photo_path, available_videos)
+        scores = []
+        for video_path in video_paths:
+            frame = extract_video_frame(video_path)
+            if frame is None:
+                continue
+            
+            score = compute_similarity(photo_img, frame)
+            if score >= threshold:
+                scores.append((video_path, score))
         
-        if best_video and score >= threshold:
-            matches.append((photo_path, best_video, score))
-            used_videos.add(best_video)
-        else:
-            print(f"警告: 照片 {photo_path.name} 找不到匹配的影片（最高分: {score:.2f}）")
+        # 按相似度排序
+        scores.sort(key=lambda x: x[1], reverse=True)
+        photo_video_scores[photo_path] = scores
     
-    return matches
+    # 分配影片給照片
+    results = []
+    used_videos = set()
+    
+    if multi_video:
+        # 1:N 模式：每個影片分配給相似度最高的照片
+        video_to_photo = {}  # video -> (photo, score)
+        
+        for photo_path, scores in photo_video_scores.items():
+            for video_path, score in scores:
+                if video_path not in video_to_photo:
+                    video_to_photo[video_path] = (photo_path, score)
+                elif score > video_to_photo[video_path][1]:
+                    video_to_photo[video_path] = (photo_path, score)
+        
+        # 反轉：按照片分組影片
+        photo_to_videos = {}
+        for video_path, (photo_path, score) in video_to_photo.items():
+            if photo_path not in photo_to_videos:
+                photo_to_videos[photo_path] = []
+            photo_to_videos[photo_path].append((video_path, score))
+        
+        # 按照片順序輸出
+        for photo_path in photo_paths:
+            if photo_path in photo_to_videos:
+                videos = photo_to_videos[photo_path]
+                # 按影片檔名排序
+                videos.sort(key=lambda x: x[0].name)
+                results.append((photo_path, videos))
+    else:
+        # 1:1 模式
+        for photo_path in photo_paths:
+            if photo_path not in photo_video_scores:
+                continue
+            
+            for video_path, score in photo_video_scores[photo_path]:
+                if video_path not in used_videos:
+                    results.append((photo_path, [(video_path, score)]))
+                    used_videos.add(video_path)
+                    break
+    
+    return results
 
 
 if __name__ == "__main__":

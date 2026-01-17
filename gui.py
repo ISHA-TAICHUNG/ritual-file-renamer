@@ -235,11 +235,11 @@ class RitualRenamerApp(ctk.CTk):
         )
         self.format_preview.configure(text=f"預覽: {example}")
     
-    def _generate_filename(self, name: str, seq: int, date: datetime, ext: str) -> str:
+    def _generate_filename(self, name: str, seq: int, date: datetime, ext: str, sub_seq: str = '') -> str:
         """根據選擇的格式生成檔名"""
         format_template = NAMING_FORMATS[self.naming_format.get()]
         date_str = date.strftime("%Y%m%d")
-        seq_str = f"{seq:03d}"
+        seq_str = f"{seq:03d}{sub_seq}"  # 如 001a, 001b
         
         filename = format_template.format(
             name=name,
@@ -407,30 +407,35 @@ class RitualRenamerApp(ctk.CTk):
                         total_original_size += original_photo_size + original_video_size
                         
                         # 生成新檔名
+                        sub = getattr(pair, 'sub_sequence', '')
+                        
+                        # 照片檔名（不帶子序號，同一張照片只輸出一次）
+                        photo_key = (pair.photo.path, pair.sequence)
+                        
                         if do_compress:
-                            # 壓縮時統一輸出為 jpg 和 mp4
-                            new_photo_name = self._generate_filename(name, pair.sequence, photo_date, ".jpg")
-                            new_video_name = self._generate_filename(name, pair.sequence, photo_date, ".mp4")
+                            new_photo_name = self._generate_filename(name, pair.sequence, photo_date, ".jpg", "")
+                            new_video_name = self._generate_filename(name, pair.sequence, photo_date, ".mp4", sub)
                         else:
                             photo_ext = pair.photo.path.suffix.lower()
                             video_ext = pair.video.path.suffix.lower()
-                            new_photo_name = self._generate_filename(name, pair.sequence, photo_date, photo_ext)
-                            new_video_name = self._generate_filename(name, pair.sequence, photo_date, video_ext)
+                            new_photo_name = self._generate_filename(name, pair.sequence, photo_date, photo_ext, "")
+                            new_video_name = self._generate_filename(name, pair.sequence, photo_date, video_ext, sub)
                         
                         new_photo = output_dir / new_photo_name
                         new_video = output_dir / new_video_name
                         
+                        # 照片只輸出一次
+                        if not new_photo.exists():
+                            if do_compress:
+                                compress_image(pair.photo.path, new_photo, quality=image_quality)
+                            else:
+                                shutil.copy2(pair.photo.path, new_photo)
+                        
+                        # 影片每次都輸出（帶子序號）
                         if do_compress:
-                            # 壓縮圖片
-                            compress_image(pair.photo.path, new_photo, quality=image_quality)
-                            # 壓縮影片
-                            compress_video(pair.photo.path, new_video, crf=video_crf)
                             if not compress_video(pair.video.path, new_video, crf=video_crf):
-                                # 壓縮失敗，直接複製
                                 shutil.copy2(pair.video.path, new_video.with_suffix(pair.video.path.suffix.lower()))
                         else:
-                            # 直接複製
-                            shutil.copy2(pair.photo.path, new_photo)
                             shutil.copy2(pair.video.path, new_video)
                         
                         # 計算輸出大小
