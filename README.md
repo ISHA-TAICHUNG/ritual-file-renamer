@@ -89,9 +89,27 @@ Python
 
 ## 環境需求
 
-- Python 3.10+
-- Tesseract OCR
-- ffmpeg
+- **作業系統**：macOS
+- **Python**：3.10+
+- **Tesseract OCR**
+- **ffmpeg**
+
+### 安裝指令（macOS）
+
+```bash
+# 安裝 Homebrew（如果還沒裝）
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# 安裝依賴
+brew install tesseract tesseract-lang ffmpeg python@3.11
+
+# 建立虛擬環境
+python3 -m venv venv
+source venv/bin/activate
+
+# 安裝 Python 套件（待實作）
+pip install -r requirements.txt
+```
 
 ## 使用方式
 
