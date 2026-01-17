@@ -46,11 +46,22 @@ CHANG CHIA HAO
 
 ```
 Python
-├── pytesseract (OCR)
-├── OpenCV (影像處理)
-├── ffmpeg (影片幀擷取)
-└── Pillow (圖片處理)
+├── pytesseract (OCR) - 提取照片上的英文姓名
+├── OpenCV (影像處理) - 圖片預處理、相似度比對
+├── ffmpeg (影片幀擷取) - 從影片擷取畫面
+└── Pillow (圖片處理) - 基本圖片操作
 ```
+
+### 參考 Skills（來自 SkillsMP）
+
+| Skill | 來源 | 功能 | 用途 |
+|-------|------|------|------|
+| `markitdown` | davila7/claude-code-templates | OCR + 文件轉換 | 讀取照片上的英文姓名 |
+| `ai-multimodal` | mrgoonie/claudekit-skills | Gemini API 多媒體處理 | 進階方案：更精準的圖片理解 |
+| `video-frames` | clawdbot/clawdbot | 影片幀擷取 | 從錄影檔抓取開頭畫面 |
+| `invoice-organizer` | ComposioHQ/awesome-claude-skills | 自動提取資訊→改名 | 參考其改名邏輯 |
+
+> **建議方案**：使用 `pytesseract` 做本地 OCR（免費、不需 API key）
 
 ### 配對邏輯
 

@@ -1,0 +1,17 @@
+# Ritual File Renamer - Python Dependencies
+
+# OCR
+pytesseract>=0.3.10
+
+# Image Processing
+opencv-python>=4.8.0
+Pillow>=10.0.0
+
+# Video Processing (uses system ffmpeg)
+# ffmpeg-python>=0.2.0  # Optional: Python bindings for ffmpeg
+
+# File Operations
+pathlib2>=2.3.7; python_version < "3.4"
+
+# Utilities
+tqdm>=4.66.0  # Progress bar
