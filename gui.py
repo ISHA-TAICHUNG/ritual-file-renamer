@@ -469,14 +469,20 @@ class RitualRenamerApp(ctk.CTk):
                         # 取得影片分割設定
                         split_count = get_segment_count_from_option(self.video_split_count.get())
                         
+                        # 取得此配對的子序號（1:N 配對時會有 a, b, c...）
+                        pair_sub = getattr(pair, 'sub_sequence', '')
+                        
                         # 影片處理
                         if split_count > 1:
                             # 需要分割影片
                             self.status_label.configure(text=f"分割影片 {i+1}/{total}: {pair.video.path.name} ({split_count} 段)")
                             
-                            # 生成基礎檔名（不含副檔名和子序號）
+                            # 生成基礎檔名（包含 1:N 配對的子序號）
+                            # 例如：1:N 配對的 001a 影片分割後會是 001a_1, 001a_2, 001a_3...
                             base_video_name = self._generate_filename("", pair.sequence, photo_date, "", "")
                             base_video_name = base_video_name.rstrip(".")  # 移除尾端的點
+                            if pair_sub:
+                                base_video_name = f"{base_video_name}{pair_sub}"  # 加上 1:N 的子序號
                             
                             video_ext = ".mp4" if do_compress else pair.video.path.suffix.lower()
                             crf_value = video_crf if do_compress else 18

@@ -39,4 +39,16 @@ Thumbs.db
 input/
 output/
 測試/
+未命名*/
 *.log
+
+# Media files (test data)
+*.mp4
+*.mov
+*.m4v
+*.avi
+*.jpg
+*.jpeg
+*.png
+*.heic
+*.heif
