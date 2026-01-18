@@ -94,7 +94,7 @@ def scan_media_files(input_dir: str | Path) -> list[MediaFile]:
     return media_files
 
 
-def pair_files(media_files: list[MediaFile], mode: str = 'time') -> list[FilePair]:
+def pair_files(media_files: list[MediaFile], mode: str = 'image') -> list[FilePair]:
     """
     配對照片和影片
     

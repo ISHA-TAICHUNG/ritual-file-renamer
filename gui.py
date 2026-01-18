@@ -478,6 +478,11 @@ class RitualRenamerApp(ctk.CTk):
                                 crf=crf_value
                             )
                             
+                            # 檢查分割是否成功
+                            if not split_files:
+                                errors.append(f"{pair.video.path.name}: 影片分割失敗")
+                                continue
+                            
                             # 計算分割後檔案大小
                             for sf in split_files:
                                 if sf.exists():

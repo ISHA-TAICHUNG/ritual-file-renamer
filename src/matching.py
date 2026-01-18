@@ -6,8 +6,6 @@ import cv2
 import numpy as np
 from pathlib import Path
 from typing import Optional
-import subprocess
-import tempfile
 
 
 def extract_video_frame(video_path: Path, frame_time: float = 0.5) -> Optional[np.ndarray]:
@@ -165,7 +163,14 @@ def match_photos_to_videos(
     Returns:
         [(照片路徑, [(影片路徑, 相似度), ...]), ...]
     """
-    # 先計算每張照片對所有影片的相似度
+    # 預先擷取所有影片幀（避免重複擷取）
+    video_frames = {}
+    for video_path in video_paths:
+        frame = extract_video_frame(video_path)
+        if frame is not None:
+            video_frames[video_path] = frame
+    
+    # 計算每張照片對所有影片的相似度
     photo_video_scores = {}
     
     for photo_path in photo_paths:
@@ -174,11 +179,7 @@ def match_photos_to_videos(
             continue
         
         scores = []
-        for video_path in video_paths:
-            frame = extract_video_frame(video_path)
-            if frame is None:
-                continue
-            
+        for video_path, frame in video_frames.items():
             score = compute_similarity(photo_img, frame)
             if score >= threshold:
                 scores.append((video_path, score))
