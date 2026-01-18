@@ -41,7 +41,6 @@ class RitualRenamerApp(ctk.CTk):
         self.output_dir = ctk.StringVar()
         self.naming_format = ctk.StringVar(value="序號")
         self.custom_prefix = ctk.StringVar(value="")  # 自訂前綴
-        self.pairing_mode = ctk.StringVar(value="圖像比對（推薦）")
         self.compress_enabled = ctk.BooleanVar(value=False)
         self.compress_preset = ctk.StringVar(value="平衡（推薦）")
         self.video_split_count = ctk.StringVar(value="不分割")  # 影片分割段數
@@ -140,27 +139,16 @@ class RitualRenamerApp(ctk.CTk):
             text_color="gray"
         ).pack(side="left", padx=10)
         
-        # 配對模式選擇
+        # 配對模式（固定使用圖像比對）
         pairing_frame = ctk.CTkFrame(settings_frame, fg_color="transparent")
         pairing_frame.pack(fill="x", padx=10, pady=5)
         
         ctk.CTkLabel(pairing_frame, text="配對模式:", width=100, anchor="w").pack(side="left")
-        
-        pairing_dropdown = ctk.CTkOptionMenu(
-            pairing_frame,
-            variable=self.pairing_mode,
-            values=["圖像比對（推薦）", "順序配對", "時間配對"],
-            width=150
-        )
-        pairing_dropdown.pack(side="left", padx=5)
-        
-        # 配對模式說明
         ctk.CTkLabel(
             pairing_frame,
-            text="比對照片與影片內容自動配對",
-            font=ctk.CTkFont(size=11),
-            text_color="gray"
-        ).pack(side="left", padx=10)
+            text="🖼️ 圖像比對（自動配對照片與影片）",
+            font=ctk.CTkFont(size=13)
+        ).pack(side="left", padx=5)
         
         # 壓縮設定區
         compress_frame = ctk.CTkFrame(settings_frame, fg_color="transparent")
@@ -312,15 +300,8 @@ class RitualRenamerApp(ctk.CTk):
             try:
                 files = scan_media_files(input_path)
                 
-                # 取得配對模式
-                pairing_choice = self.pairing_mode.get()
-                if '圖像' in pairing_choice:
-                    mode = 'image'
-                elif '順序' in pairing_choice:
-                    mode = 'order'
-                else:
-                    mode = 'time'
-                self.pairs = pair_files(files, mode=mode)
+                # 固定使用圖像比對模式
+                self.pairs = pair_files(files, mode='image')
                 
                 # 更新預覽
                 self.preview_text.configure(state="normal")
