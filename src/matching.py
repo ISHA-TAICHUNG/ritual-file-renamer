@@ -8,13 +8,13 @@ from pathlib import Path
 from typing import Optional
 
 
-def extract_video_frame(video_path: Path, frame_time: float = 0.5) -> Optional[np.ndarray]:
+def extract_video_frame(video_path: Path, frame_position: float = 0.5) -> Optional[np.ndarray]:
     """
-    從影片擷取指定時間的幀
+    從影片擷取指定位置的幀
     
     Args:
         video_path: 影片路徑
-        frame_time: 擷取時間（秒），預設 0.5 秒（影片開頭）
+        frame_position: 擷取位置（0.0~1.0），預設 0.5 = 影片中間
         
     Returns:
         OpenCV 圖像 (numpy array)，失敗返回 None
@@ -24,9 +24,9 @@ def extract_video_frame(video_path: Path, frame_time: float = 0.5) -> Optional[n
         if not cap.isOpened():
             return None
         
-        # 設定到指定時間
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        frame_number = int(frame_time * fps)
+        # 取得總幀數，擷取指定位置
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        frame_number = int(total_frames * frame_position)
         cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
         
         ret, frame = cap.read()

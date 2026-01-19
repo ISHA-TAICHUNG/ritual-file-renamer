@@ -161,20 +161,23 @@ def pair_files(media_files: list[MediaFile], mode: str = 'image') -> list[FilePa
             sequence += 1
     
     elif mode == 'order':
-        # 順序配對：依檔名排序後配對
+        # 順序配對：照片按檔名排序，影片按下載時間排序
+        # 適用於 LINE 檔案（照片檔名有序號，影片按下載順序）
         photos_sorted = sorted(photos, key=lambda x: x.path.name)
-        videos_sorted = sorted(videos, key=lambda x: x.path.name)
+        # 用檔案系統時間（下載時間）排序，不是拍攝時間
+        videos_sorted = sorted(videos, key=lambda x: x.path.stat().st_birthtime)
         
         for i, (photo, video) in enumerate(zip(photos_sorted, videos_sorted), 1):
             pair = FilePair(photo=photo, video=video, sequence=i)
             pairs.append(pair)
+            print(f"  配對 {i}: {photo.path.name} + {video.path.name}")
         
         # 報告未配對的檔案
         if len(photos) > len(videos):
-            for photo in photos[len(videos):]:
+            for photo in photos_sorted[len(videos):]:
                 print(f"警告: 照片 {photo.path.name} 沒有對應的影片")
         elif len(videos) > len(photos):
-            for video in videos[len(photos):]:
+            for video in videos_sorted[len(photos):]:
                 print(f"警告: 影片 {video.path.name} 沒有對應的照片")
     else:
         # 時間配對：依照時間順序，每張照片對應下一個影片
@@ -210,6 +213,90 @@ def pair_files(media_files: list[MediaFile], mode: str = 'image') -> list[FilePa
         while video_idx < len(videos):
             print(f"警告: 影片 {videos[video_idx].path.name} 沒有對應的照片")
             video_idx += 1
+    
+    return pairs
+
+
+def pair_files_by_time(
+    media_files: list[MediaFile],
+    time_tolerance_seconds: int = 60
+) -> list[FilePair]:
+    """
+    用時間配對：照片後 time_tolerance 秒內的影片都屬於該照片
+    
+    支援 1:N 配對（一張照片可配多部影片）
+    
+    Args:
+        media_files: 依時間排序的媒體檔案列表
+        time_tolerance_seconds: 時間容錯（秒），預設 60 秒
+        
+    Returns:
+        配對結果列表
+    """
+    from datetime import timedelta
+    
+    pairs = []
+    photos = [f for f in media_files if not f.is_video]
+    videos = [f for f in media_files if f.is_video]
+    
+    if len(photos) != len(videos):
+        print(f"警告: 照片數量 ({len(photos)}) 和影片數量 ({len(videos)}) 不一致")
+    
+    tolerance = timedelta(seconds=time_tolerance_seconds)
+    used_videos = set()
+    sequence = 1
+    
+    for photo in photos:
+        # 找出在此照片後 time_tolerance 秒內的所有影片
+        matched_videos = []
+        
+        for video in videos:
+            if video.path in used_videos:
+                continue
+            
+            # 影片時間應該 >= 照片時間，且在容錯範圍內
+            time_diff = video.created_time - photo.created_time
+            
+            if timedelta(0) <= time_diff <= tolerance:
+                matched_videos.append(video)
+                used_videos.add(video.path)
+        
+        if not matched_videos:
+            print(f"警告: 照片 {photo.path.name} 沒有配對的影片")
+            continue
+        
+        # 按影片時間排序
+        matched_videos.sort(key=lambda v: v.created_time)
+        
+        if len(matched_videos) == 1:
+            # 1:1 配對
+            pair = FilePair(
+                photo=photo,
+                video=matched_videos[0],
+                sequence=sequence
+            )
+            pairs.append(pair)
+            print(f"  配對 {sequence}: {photo.path.name} + {matched_videos[0].path.name}")
+        else:
+            # 1:N 配對
+            sub_labels = 'abcdefghijklmnopqrstuvwxyz'
+            for idx, video in enumerate(matched_videos):
+                sub = sub_labels[idx] if idx < len(sub_labels) else str(idx + 1)
+                pair = FilePair(
+                    photo=photo,
+                    video=video,
+                    sequence=sequence,
+                    sub_sequence=sub
+                )
+                pairs.append(pair)
+                print(f"  配對 {sequence}{sub}: {photo.path.name} + {video.path.name}")
+        
+        sequence += 1
+    
+    # 報告未配對的影片
+    for video in videos:
+        if video.path not in used_videos:
+            print(f"警告: 影片 {video.path.name} 沒有對應的照片")
     
     return pairs
 

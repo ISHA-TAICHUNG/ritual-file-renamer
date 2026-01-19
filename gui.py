@@ -11,9 +11,13 @@ from datetime import datetime
 import shutil
 
 from src.ocr import extract_name_from_image, extract_name_fullpage
-from src.pairing import scan_media_files, pair_files, FilePair
+from src.pairing import scan_media_files, pair_files, pair_files_by_time, FilePair
 from src.compress import compress_image, compress_video, get_file_size_mb, COMPRESSION_PRESETS
 from src.video_split import split_video, get_segment_count_from_option
+
+from src.thumbnail import generate_thumbnail
+from PIL import Image
+import io
 
 
 # 設定外觀
@@ -44,7 +48,12 @@ class RitualRenamerApp(ctk.CTk):
         self.compress_enabled = ctk.BooleanVar(value=False)
         self.compress_preset = ctk.StringVar(value="平衡（推薦）")
         self.video_split_count = ctk.StringVar(value="不分割")  # 影片分割段數
+        self.pairing_mode = ctk.StringVar(value="順序配對")  # 配對模式
+        self.time_tolerance = ctk.StringVar(value="60")  # 時間容錯（秒）
+
         self.pairs = []
+        self.photos = []  # 照片列表（可手動調整順序）
+        self.videos = []  # 影片列表（可手動調整順序）
         self.is_processing = False
         
         self._create_widgets()
@@ -139,16 +148,46 @@ class RitualRenamerApp(ctk.CTk):
             text_color="gray"
         ).pack(side="left", padx=10)
         
-        # 配對模式（固定使用圖像比對）
+        # 配對模式選擇
         pairing_frame = ctk.CTkFrame(settings_frame, fg_color="transparent")
         pairing_frame.pack(fill="x", padx=10, pady=5)
         
         ctk.CTkLabel(pairing_frame, text="配對模式:", width=100, anchor="w").pack(side="left")
-        ctk.CTkLabel(
+        
+        pairing_dropdown = ctk.CTkOptionMenu(
             pairing_frame,
-            text="🖼️ 圖像比對（自動配對照片與影片）",
-            font=ctk.CTkFont(size=13)
-        ).pack(side="left", padx=5)
+            variable=self.pairing_mode,
+            values=["順序配對", "時間比對", "圖像比對"],
+            width=120,
+            command=self._on_pairing_mode_change
+        )
+        pairing_dropdown.pack(side="left", padx=5)
+        
+        # 時間容錯設定（預設隱藏）
+        self.tolerance_label = ctk.CTkLabel(pairing_frame, text="容錯:", width=50)
+        self.tolerance_label.pack(side="left", padx=(15, 0))
+        
+        self.tolerance_entry = ctk.CTkEntry(
+            pairing_frame,
+            textvariable=self.time_tolerance,
+            width=60
+        )
+        self.tolerance_entry.pack(side="left", padx=5)
+        
+        self.tolerance_unit = ctk.CTkLabel(
+            pairing_frame,
+            text="秒",
+            font=ctk.CTkFont(size=12)
+        )
+        self.tolerance_unit.pack(side="left")
+        
+        self.pairing_tip = ctk.CTkLabel(
+            pairing_frame,
+            text="照片後 N 秒內的影片歸屬該照片",
+            font=ctk.CTkFont(size=11),
+            text_color="gray"
+        )
+        self.pairing_tip.pack(side="left", padx=10)
         
         # 壓縮設定區
         compress_frame = ctk.CTkFrame(settings_frame, fg_color="transparent")
@@ -186,14 +225,79 @@ class RitualRenamerApp(ctk.CTk):
         )
         self.compress_info.pack(side="left", padx=10)
         
-        # 預覽區
-        preview_label = ctk.CTkLabel(main_frame, text="配對預覽", font=ctk.CTkFont(size=16, weight="bold"))
-        preview_label.pack(pady=(12, 5), anchor="w")
+
         
-        self.preview_text = ctk.CTkTextbox(main_frame, height=230, font=ctk.CTkFont(family="Menlo", size=12))
-        self.preview_text.pack(fill="both", expand=True, pady=5)
-        self.preview_text.insert("1.0", "選擇輸入資料夾後點擊「預覽」查看配對結果...")
-        self.preview_text.configure(state="disabled")
+        # 預覽區標題
+        preview_header = ctk.CTkFrame(main_frame, fg_color="transparent")
+        preview_header.pack(fill="x", pady=(12, 5))
+        
+        ctk.CTkLabel(
+            preview_header,
+            text="配對預覽（可手動調整順序）",
+            font=ctk.CTkFont(size=16, weight="bold")
+        ).pack(side="left")
+        
+        self.pair_count_label = ctk.CTkLabel(
+            preview_header,
+            text="",
+            font=ctk.CTkFont(size=12),
+            text_color="gray"
+        )
+        self.pair_count_label.pack(side="right")
+        
+        # 兩欄式預覽區
+        preview_frame = ctk.CTkFrame(main_frame)
+        preview_frame.pack(fill="both", expand=True, pady=5)
+        
+        # 左欄：照片列表
+        photo_frame = ctk.CTkFrame(preview_frame)
+        photo_frame.pack(side="left", fill="both", expand=True, padx=(0, 5))
+        
+        ctk.CTkLabel(photo_frame, text="📷 照片", font=ctk.CTkFont(weight="bold")).pack(pady=5)
+        
+        self.photo_listbox = ctk.CTkScrollableFrame(photo_frame, height=180)
+        self.photo_listbox.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        # 照片操作按鈕
+        photo_btn_frame = ctk.CTkFrame(photo_frame, fg_color="transparent")
+        photo_btn_frame.pack(pady=5)
+        
+        ctk.CTkButton(
+            photo_btn_frame, text="🔼 上移", width=60,
+            command=lambda: self._move_item("photo", -1)
+        ).pack(side="left", padx=2)
+        ctk.CTkButton(
+            photo_btn_frame, text="🔽 下移", width=60,
+            command=lambda: self._move_item("photo", 1)
+        ).pack(side="left", padx=2)
+        
+        # 右欄：影片列表
+        video_frame = ctk.CTkFrame(preview_frame)
+        video_frame.pack(side="left", fill="both", expand=True, padx=(5, 0))
+        
+        ctk.CTkLabel(video_frame, text="🎬 影片", font=ctk.CTkFont(weight="bold")).pack(pady=5)
+        
+        self.video_listbox = ctk.CTkScrollableFrame(video_frame, height=180)
+        self.video_listbox.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        # 影片操作按鈕
+        video_btn_frame = ctk.CTkFrame(video_frame, fg_color="transparent")
+        video_btn_frame.pack(pady=5)
+        
+        ctk.CTkButton(
+            video_btn_frame, text="🔼 上移", width=60,
+            command=lambda: self._move_item("video", -1)
+        ).pack(side="left", padx=2)
+        ctk.CTkButton(
+            video_btn_frame, text="🔽 下移", width=60,
+            command=lambda: self._move_item("video", 1)
+        ).pack(side="left", padx=2)
+        
+        # 儲存列表項目的選擇狀態
+        self.photo_items = []  # [(MediaFile, CTkButton), ...]
+        self.video_items = []  # [(MediaFile, CTkButton), ...]
+        self.selected_photo_idx = None
+        self.selected_video_idx = None
         
         # 進度條
         self.progress_bar = ctk.CTkProgressBar(main_frame)
@@ -235,6 +339,24 @@ class RitualRenamerApp(ctk.CTk):
         else:
             self.compress_dropdown.configure(state="disabled")
             self.compress_info.configure(text="")
+    
+    
+
+    def _on_pairing_mode_change(self, choice):
+        """切換配對模式"""
+        if choice == "時間比對":
+            self.tolerance_label.pack(side="left", padx=(15, 0))
+            self.tolerance_entry.pack(side="left", padx=5)
+            self.tolerance_unit.pack(side="left")
+            self.pairing_tip.configure(text="照片後 N 秒內的影片歸屬該照片")
+        else:
+            self.tolerance_label.pack_forget()
+            self.tolerance_entry.pack_forget()
+            self.tolerance_unit.pack_forget()
+            if choice == "順序配對":
+                self.pairing_tip.configure(text="按檔名排序配對（適用 LINE 檔案）")
+            else:
+                self.pairing_tip.configure(text="用圖像相似度配對")
     
     def _on_format_change(self, choice):
         """更新格式預覽並控制自訂輸入框狀態"""
@@ -300,59 +422,274 @@ class RitualRenamerApp(ctk.CTk):
             try:
                 files = scan_media_files(input_path)
                 
-                # 固定使用圖像比對模式
-                self.pairs = pair_files(files, mode='image')
+                # 分離照片和影片
+                self.photos = [f for f in files if not f.is_video]
+                self.videos = [f for f in files if f.is_video]
                 
-                # 更新預覽
-                self.preview_text.configure(state="normal")
-                self.preview_text.delete("1.0", "end")
-                
-                if not self.pairs:
-                    self.preview_text.insert("1.0", "沒有找到可配對的檔案\n")
+                # 根據選擇的模式排序
+                mode = self.pairing_mode.get()
+                if mode == "順序配對":
+                    # 照片按檔名排序，影片按下載時間排序
+                    self.photos.sort(key=lambda x: x.path.name)
+                    self.videos.sort(key=lambda x: x.path.stat().st_birthtime)
+                elif mode == "時間比對":
+                    # 都按時間排序
+                    self.photos.sort(key=lambda x: x.created_time)
+                    self.videos.sort(key=lambda x: x.created_time)
                 else:
-                    photos = [f for f in files if not f.is_video]
-                    videos = [f for f in files if f.is_video]
-                    
-                    # 計算總大小
-                    total_size = sum(get_file_size_mb(p.photo.path) + get_file_size_mb(p.video.path) for p in self.pairs)
-                    
-                    summary = f"找到 {len(photos)} 張照片、{len(videos)} 部影片\n"
-                    summary += f"成功配對 {len(self.pairs)} 組（總計 {total_size:.1f} MB）\n"
-                    summary += f"命名格式: {self.naming_format.get()}\n"
-                    if self.compress_enabled.get():
-                        summary += f"壓縮: {self.compress_preset.get()}\n"
-                    summary += "=" * 50 + "\n\n"
-                    
-                    for pair in self.pairs:
-                        photo_size = get_file_size_mb(pair.photo.path)
-                        video_size = get_file_size_mb(pair.video.path)
-                        
-                        summary += f"[{pair.sequence:03d}]\n"
-                        summary += f"  📷 {pair.photo.path.name} ({photo_size:.1f} MB)\n"
-                        summary += f"     時間: {pair.photo.created_time} [{pair.photo.time_source}]\n"
-                        summary += f"  🎬 {pair.video.path.name} ({video_size:.1f} MB)\n"
-                        summary += f"     時間: {pair.video.created_time} [{pair.video.time_source}]\n\n"
-                    
-                    self.preview_text.insert("1.0", summary)
+                    # 圖像比對：按檔名排序
+                    self.photos.sort(key=lambda x: x.path.name)
+                    self.videos.sort(key=lambda x: x.path.name)
                 
-                self.preview_text.configure(state="disabled")
-                self.status_label.configure(text=f"預覽完成：{len(self.pairs)} 組配對")
+                # 在主線程更新 UI
+                self.after(0, self._update_preview_lists)
                 
             except Exception as e:
-                messagebox.showerror("錯誤", f"掃描失敗: {e}")
-                self.status_label.configure(text="掃描失敗")
+                self.after(0, lambda: messagebox.showerror("錯誤", f"掃描失敗: {e}"))
+                self.after(0, lambda: self.status_label.configure(text="掃描失敗"))
             finally:
-                self.preview_btn.configure(state="normal")
+                self.after(0, lambda: self.preview_btn.configure(state="normal"))
         
         threading.Thread(target=do_preview, daemon=True).start()
+    
+    def _update_preview_lists(self):
+        """更新兩欄縮圖網格顯示"""
+        # 清空現有列表
+        for widget in self.photo_listbox.winfo_children():
+            widget.destroy()
+        for widget in self.video_listbox.winfo_children():
+            widget.destroy()
+        
+        self.photo_items = []
+        self.video_items = []
+        self.photo_thumbnails = []  # 保存縮圖引用避免被 GC
+        self.video_thumbnails = []
+        self.selected_photo_idx = None
+        self.selected_video_idx = None
+        
+        # 縮圖尺寸
+        thumb_size = (60, 80)
+        cols = 4  # 每行顯示的縮圖數
+        
+        # 填充照片縮圖
+        self.status_label.configure(text="生成照片縮圖中...")
+        self.update()
+        
+        for i, photo in enumerate(self.photos):
+            row = i // cols
+            col = i % cols
+            
+            # 生成縮圖
+            thumb_bytes = generate_thumbnail(photo.path, is_video=False, size=thumb_size)
+            
+            frame = ctk.CTkFrame(self.photo_listbox, fg_color="transparent")
+            frame.grid(row=row, column=col, padx=2, pady=2)
+            
+            if thumb_bytes:
+                # 轉換為 CTkImage
+                pil_image = Image.open(io.BytesIO(thumb_bytes))
+                ctk_image = ctk.CTkImage(light_image=pil_image, dark_image=pil_image, size=thumb_size)
+                self.photo_thumbnails.append(ctk_image)
+                
+                btn = ctk.CTkButton(
+                    frame,
+                    image=ctk_image,
+                    text=f"{i+1}",
+                    compound="top",
+                    width=70,
+                    height=100,
+                    fg_color="transparent",
+                    hover_color=("gray70", "gray30"),
+                    command=lambda idx=i: self._select_photo(idx)
+                )
+            else:
+                btn = ctk.CTkButton(
+                    frame,
+                    text=f"{i+1}\n📷",
+                    width=70,
+                    height=100,
+                    fg_color="transparent",
+                    hover_color=("gray70", "gray30"),
+                    command=lambda idx=i: self._select_photo(idx)
+                )
+            
+            btn.pack()
+            self.photo_items.append((photo, btn))
+        
+        # 填充影片縮圖
+        self.status_label.configure(text="生成影片縮圖中...")
+        self.update()
+        
+        for i, video in enumerate(self.videos):
+            row = i // cols
+            col = i % cols
+            
+            # 生成縮圖
+            thumb_bytes = generate_thumbnail(video.path, is_video=True, size=thumb_size)
+            
+            frame = ctk.CTkFrame(self.video_listbox, fg_color="transparent")
+            frame.grid(row=row, column=col, padx=2, pady=2)
+            
+            if thumb_bytes:
+                # 轉換為 CTkImage
+                pil_image = Image.open(io.BytesIO(thumb_bytes))
+                ctk_image = ctk.CTkImage(light_image=pil_image, dark_image=pil_image, size=thumb_size)
+                self.video_thumbnails.append(ctk_image)
+                
+                btn = ctk.CTkButton(
+                    frame,
+                    image=ctk_image,
+                    text=f"{i+1}",
+                    compound="top",
+                    width=70,
+                    height=100,
+                    fg_color="transparent",
+                    hover_color=("gray70", "gray30"),
+                    command=lambda idx=i: self._select_video(idx)
+                )
+            else:
+                btn = ctk.CTkButton(
+                    frame,
+                    text=f"{i+1}\n🎬",
+                    width=70,
+                    height=100,
+                    fg_color="transparent",
+                    hover_color=("gray70", "gray30"),
+                    command=lambda idx=i: self._select_video(idx)
+                )
+            
+            btn.pack()
+            self.video_items.append((video, btn))
+        
+        # 更新配對數量
+        count = min(len(self.photos), len(self.videos))
+        self.pair_count_label.configure(
+            text=f"{len(self.photos)} 張照片 / {len(self.videos)} 部影片 → {count} 組配對"
+        )
+        
+        # 建立配對
+        self._build_pairs()
+        
+        self.status_label.configure(text=f"預覽完成：{count} 組配對（點擊兩個縮圖交換位置）")
+    
+    def _select_photo(self, idx):
+        """選擇照片 - 如果已選中另一張則交換位置"""
+        if self.selected_photo_idx is not None and self.selected_photo_idx != idx:
+            # 已有選中項目且不是自己，執行交換
+            old_idx = self.selected_photo_idx
+            self.photos[old_idx], self.photos[idx] = self.photos[idx], self.photos[old_idx]
+            self.selected_photo_idx = None
+            self._update_preview_lists()
+            self._build_pairs()
+            return
+        
+        # 取消之前的選擇
+        if self.selected_photo_idx is not None and self.selected_photo_idx < len(self.photo_items):
+            _, old_btn = self.photo_items[self.selected_photo_idx]
+            old_btn.configure(fg_color="transparent")
+        
+        # 設定新選擇（或取消選擇）
+        if self.selected_photo_idx == idx:
+            self.selected_photo_idx = None  # 再次點擊取消選擇
+        else:
+            self.selected_photo_idx = idx
+            _, btn = self.photo_items[idx]
+            btn.configure(fg_color=("#3B8ED0", "#1F6AA5"))  # 藍色高亮
+    
+    def _select_video(self, idx):
+        """選擇影片 - 如果已選中另一個則交換位置"""
+        if self.selected_video_idx is not None and self.selected_video_idx != idx:
+            # 已有選中項目且不是自己，執行交換
+            old_idx = self.selected_video_idx
+            self.videos[old_idx], self.videos[idx] = self.videos[idx], self.videos[old_idx]
+            self.selected_video_idx = None
+            self._update_preview_lists()
+            self._build_pairs()
+            return
+        
+        # 取消之前的選擇
+        if self.selected_video_idx is not None and self.selected_video_idx < len(self.video_items):
+            _, old_btn = self.video_items[self.selected_video_idx]
+            old_btn.configure(fg_color="transparent")
+        
+        # 設定新選擇（或取消選擇）
+        if self.selected_video_idx == idx:
+            self.selected_video_idx = None  # 再次點擊取消選擇
+        else:
+            self.selected_video_idx = idx
+            _, btn = self.video_items[idx]
+            btn.configure(fg_color=("#3B8ED0", "#1F6AA5"))  # 藍色高亮
+    
+    def _move_item(self, item_type: str, direction: int):
+        """移動選中的項目"""
+        if item_type == "photo":
+            idx = self.selected_photo_idx
+            items = self.photos
+        else:
+            idx = self.selected_video_idx
+            items = self.videos
+        
+        if idx is None:
+            messagebox.showinfo("提示", f"請先選擇要移動的{'照片' if item_type == 'photo' else '影片'}")
+            return
+        
+        new_idx = idx + direction
+        if 0 <= new_idx < len(items):
+            # 交換
+            items[idx], items[new_idx] = items[new_idx], items[idx]
+            
+            # 更新選擇
+            if item_type == "photo":
+                self.selected_photo_idx = new_idx
+            else:
+                self.selected_video_idx = new_idx
+            
+            # 重新顯示列表
+            self._update_preview_lists()
+            
+            # 恢復選擇狀態
+            if item_type == "photo":
+                self._select_photo(new_idx)
+            else:
+                self._select_video(new_idx)
+    
+    def _build_pairs(self):
+        """根據當前照片/影片順序建立配對"""
+        self.pairs = []
+        for i, (photo, video) in enumerate(zip(self.photos, self.videos), 1):
+            pair = FilePair(photo=photo, video=video, sequence=i)
+            self.pairs.append(pair)
     
     def _run(self):
         if self.is_processing:
             return
         
         if not self.pairs:
-            messagebox.showwarning("提示", "請先預覽配對結果")
-            return
+            # 沒有預覽過，先執行預覽
+            input_path = self.input_dir.get()
+            if not input_path:
+                messagebox.showwarning("提示", "請先選擇輸入資料夾")
+                return
+            
+            # 同步執行預覽（簡化版）
+            self.status_label.configure(text="掃描配對中...")
+            self.update()
+            try:
+                files = scan_media_files(input_path)
+                self.photos = [f for f in files if not f.is_video]
+                self.videos = [f for f in files if f.is_video]
+                
+                # 按順序配對
+                self.photos.sort(key=lambda x: x.path.name)
+                self.videos.sort(key=lambda x: x.path.stat().st_birthtime)
+                self._build_pairs()
+            except Exception as e:
+                messagebox.showerror("錯誤", f"配對失敗: {e}")
+                return
+            
+            if not self.pairs:
+                messagebox.showwarning("提示", "沒有找到可配對的檔案")
+                return
         
         output_path = self.output_dir.get()
         if not output_path:
@@ -503,6 +840,7 @@ class RitualRenamerApp(ctk.CTk):
                         
                         success += 1
                         
+
                     except Exception as e:
                         errors.append(f"{pair.photo.path.name}: {e}")
                 
