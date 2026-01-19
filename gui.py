@@ -339,8 +339,6 @@ class RitualRenamerApp(ctk.CTk):
         else:
             self.compress_dropdown.configure(state="disabled")
             self.compress_info.configure(text="")
-    
-    
 
     def _on_pairing_mode_change(self, choice):
         """切換配對模式"""
@@ -734,14 +732,16 @@ class RitualRenamerApp(ctk.CTk):
                 
                 for i, pair in enumerate(self.pairs):
                     try:
-                        # 更新進度
+                        # 更新進度 (thread-safe)
                         progress = (i + 1) / total
-                        self.progress_bar.set(progress)
+                        self.after(0, lambda p=progress: self.progress_bar.set(p))
                         
                         if do_compress:
-                            self.status_label.configure(text=f"壓縮中 {i+1}/{total}: {pair.video.path.name}")
+                            self.after(0, lambda v=pair.video.path.name, n=i+1, t=total: 
+                                self.status_label.configure(text=f"壓縮中 {n}/{t}: {v}"))
                         else:
-                            self.status_label.configure(text=f"處理中 {i+1}/{total}: {pair.photo.path.name}")
+                            self.after(0, lambda p=pair.photo.path.name, n=i+1, t=total:
+                                self.status_label.configure(text=f"處理中 {n}/{t}: {p}"))
                         
                         # OCR 提取姓名
                         name = extract_name_from_image(pair.photo.path)
@@ -759,11 +759,8 @@ class RitualRenamerApp(ctk.CTk):
                         original_video_size = get_file_size_mb(pair.video.path)
                         total_original_size += original_photo_size + original_video_size
                         
-                        # 生成新檔名
+                        # 生成新檔名（取得子序號供 1:N 配對使用）
                         sub = getattr(pair, 'sub_sequence', '')
-                        
-                        # 照片檔名（不帶子序號，同一張照片只輸出一次）
-                        photo_key = (pair.photo.path, pair.sequence)
                         
                         if do_compress:
                             new_photo_name = self._generate_filename(name, pair.sequence, photo_date, ".jpg", "")
@@ -787,20 +784,18 @@ class RitualRenamerApp(ctk.CTk):
                         # 取得影片分割設定
                         split_count = get_segment_count_from_option(self.video_split_count.get())
                         
-                        # 取得此配對的子序號（1:N 配對時會有 a, b, c...）
-                        pair_sub = getattr(pair, 'sub_sequence', '')
-                        
                         # 影片處理
                         if split_count > 1:
                             # 需要分割影片
-                            self.status_label.configure(text=f"分割影片 {i+1}/{total}: {pair.video.path.name} ({split_count} 段)")
+                            self.after(0, lambda v=pair.video.path.name, n=i+1, t=total, s=split_count:
+                                self.status_label.configure(text=f"分割影片 {n}/{t}: {v} ({s} 段)"))
                             
                             # 生成基礎檔名（包含 1:N 配對的子序號）
                             # 例如：1:N 配對的 001a 影片分割後會是 001a_1, 001a_2, 001a_3...
                             base_video_name = self._generate_filename("", pair.sequence, photo_date, "", "")
                             base_video_name = base_video_name.rstrip(".")  # 移除尾端的點
-                            if pair_sub:
-                                base_video_name = f"{base_video_name}{pair_sub}"  # 加上 1:N 的子序號
+                            if sub:
+                                base_video_name = f"{base_video_name}{sub}"  # 加上 1:N 的子序號
                             
                             video_ext = ".mp4" if do_compress else pair.video.path.suffix.lower()
                             crf_value = video_crf if do_compress else 18

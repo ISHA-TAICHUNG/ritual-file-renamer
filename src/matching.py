@@ -6,6 +6,9 @@ import cv2
 import numpy as np
 from pathlib import Path
 from typing import Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def extract_video_frame(video_path: Path, frame_position: float = 0.5) -> Optional[np.ndarray]:
@@ -37,7 +40,7 @@ def extract_video_frame(video_path: Path, frame_position: float = 0.5) -> Option
         return None
         
     except Exception as e:
-        print(f"擷取影片幀失敗 ({video_path}): {e}")
+        logger.warning(f"擷取影片幀失敗 ({video_path}): {e}")
         return None
 
 
@@ -47,7 +50,7 @@ def load_image(image_path: Path) -> Optional[np.ndarray]:
         img = cv2.imread(str(image_path))
         return img
     except Exception as e:
-        print(f"載入圖片失敗 ({image_path}): {e}")
+        logger.warning(f"載入圖片失敗 ({image_path}): {e}")
         return None
 
 
@@ -91,7 +94,7 @@ def compute_similarity(img1: np.ndarray, img2: np.ndarray) -> float:
         return min(similarity, 1.0)
         
     except Exception as e:
-        print(f"計算相似度失敗: {e}")
+        logger.warning(f"計算相似度失敗: {e}")
         return 0.0
 
 
