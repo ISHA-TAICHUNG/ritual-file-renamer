@@ -9,6 +9,7 @@ import threading
 from pathlib import Path
 from datetime import datetime
 import shutil
+import subprocess
 
 from src.ocr import extract_name_from_image, extract_name_fullpage
 from src.pairing import scan_media_files, pair_files, pair_files_by_time, FilePair
@@ -37,8 +38,8 @@ class RitualRenamerApp(ctk.CTk):
         super().__init__()
         
         self.title("法事檔案自動配對命名工具")
-        self.geometry("800x750")
-        self.minsize(700, 650)
+        self.geometry("1200x800")
+        self.minsize(1000, 700)
         
         # 狀態變數
         self.input_dir = ctk.StringVar()
@@ -63,16 +64,78 @@ class RitualRenamerApp(ctk.CTk):
         main_frame = ctk.CTkFrame(self)
         main_frame.pack(fill="both", expand=True, padx=20, pady=20)
         
-        # 標題
+        # 標題列（包含標題和按鈕）
+        title_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        title_frame.pack(fill="x", pady=(0, 15))
+        
+        # 標題（左側）
         title_label = ctk.CTkLabel(
-            main_frame,
+            title_frame,
             text="🕯️ 法事檔案自動配對命名工具",
             font=ctk.CTkFont(size=24, weight="bold")
         )
-        title_label.pack(pady=(0, 15))
+        title_label.pack(side="left")
         
-        # 設定區
-        settings_frame = ctk.CTkFrame(main_frame)
+        # 按鈕區（右側）
+        self.run_btn = ctk.CTkButton(
+            title_frame,
+            text="▶️ 執行",
+            width=100,
+            height=36,
+            fg_color="green",
+            hover_color="darkgreen",
+            command=self._run
+        )
+        self.run_btn.pack(side="right", padx=5)
+        
+        self.preview_btn = ctk.CTkButton(
+            title_frame,
+            text="👁️ 預覽",
+            width=100,
+            height=36,
+            command=self._preview
+        )
+        self.preview_btn.pack(side="right", padx=5)
+        
+        # 主內容區（左右分欄）
+        content_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        content_frame.pack(fill="both", expand=True)
+        
+        # 左側：設定和配對列表
+        left_frame = ctk.CTkFrame(content_frame)
+        left_frame.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        
+        # 右側：大型預覽區
+        right_frame = ctk.CTkFrame(content_frame)
+        right_frame.pack(side="right", fill="y", padx=(10, 0))
+        
+        ctk.CTkLabel(
+            right_frame, 
+            text="🔍 大圖預覽", 
+            font=ctk.CTkFont(size=14, weight="bold")
+        ).pack(pady=10)
+        
+        self.large_preview_label = ctk.CTkLabel(
+            right_frame,
+            text="將滑鼠移到\n縮圖上\n查看大圖",
+            width=400,
+            height=300,
+            fg_color=("gray85", "gray20")
+        )
+        self.large_preview_label.pack(padx=10, pady=5)
+        
+        self.preview_filename_label = ctk.CTkLabel(
+            right_frame,
+            text="",
+            font=ctk.CTkFont(size=13),
+            wraplength=380
+        )
+        self.preview_filename_label.pack(pady=5)
+        
+        self.large_preview_image = None  # 保持引用避免 GC
+        
+        # 設定區（在左側）
+        settings_frame = ctk.CTkFrame(left_frame)
         settings_frame.pack(fill="x", pady=10)
         
         # 輸入資料夾
@@ -228,7 +291,7 @@ class RitualRenamerApp(ctk.CTk):
 
         
         # 預覽區標題
-        preview_header = ctk.CTkFrame(main_frame, fg_color="transparent")
+        preview_header = ctk.CTkFrame(left_frame, fg_color="transparent")
         preview_header.pack(fill="x", pady=(12, 5))
         
         ctk.CTkLabel(
@@ -246,7 +309,7 @@ class RitualRenamerApp(ctk.CTk):
         self.pair_count_label.pack(side="right")
         
         # 兩欄式預覽區
-        preview_frame = ctk.CTkFrame(main_frame)
+        preview_frame = ctk.CTkFrame(left_frame)
         preview_frame.pack(fill="both", expand=True, pady=5)
         
         # 左欄：照片列表
@@ -300,36 +363,12 @@ class RitualRenamerApp(ctk.CTk):
         self.selected_video_idx = None
         
         # 進度條
-        self.progress_bar = ctk.CTkProgressBar(main_frame)
+        self.progress_bar = ctk.CTkProgressBar(left_frame)
         self.progress_bar.pack(fill="x", pady=10)
         self.progress_bar.set(0)
         
-        self.status_label = ctk.CTkLabel(main_frame, text="就緒", font=ctk.CTkFont(size=12))
+        self.status_label = ctk.CTkLabel(left_frame, text="就緒", font=ctk.CTkFont(size=12))
         self.status_label.pack()
-        
-        # 按鈕區
-        button_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
-        button_frame.pack(pady=12)
-        
-        self.preview_btn = ctk.CTkButton(
-            button_frame,
-            text="👁️ 預覽",
-            width=120,
-            height=40,
-            command=self._preview
-        )
-        self.preview_btn.pack(side="left", padx=10)
-        
-        self.run_btn = ctk.CTkButton(
-            button_frame,
-            text="▶️ 執行",
-            width=120,
-            height=40,
-            fg_color="green",
-            hover_color="darkgreen",
-            command=self._run
-        )
-        self.run_btn.pack(side="left", padx=10)
     
     def _on_compress_toggle(self):
         """切換壓縮開關"""
@@ -511,6 +550,10 @@ class RitualRenamerApp(ctk.CTk):
                     command=lambda idx=i: self._select_photo(idx)
                 )
             
+            # 綁定雙擊事件打開檔案
+            btn.bind("<Double-Button-1>", lambda e, idx=i: self._open_file(self.photos[idx].path))
+            # 綁定滑鼠進入事件顯示大圖
+            btn.bind("<Enter>", lambda e, idx=i: self._show_large_preview(self.photos[idx].path, is_video=False))
             btn.pack()
             self.photo_items.append((photo, btn))
         
@@ -556,6 +599,10 @@ class RitualRenamerApp(ctk.CTk):
                     command=lambda idx=i: self._select_video(idx)
                 )
             
+            # 綁定雙擊事件打開檔案
+            btn.bind("<Double-Button-1>", lambda e, idx=i: self._open_file(self.videos[idx].path))
+            # 綁定滑鼠進入事件顯示大圖
+            btn.bind("<Enter>", lambda e, idx=i: self._show_large_preview(self.videos[idx].path, is_video=True))
             btn.pack()
             self.video_items.append((video, btn))
         
@@ -568,7 +615,7 @@ class RitualRenamerApp(ctk.CTk):
         # 建立配對
         self._build_pairs()
         
-        self.status_label.configure(text=f"預覽完成：{count} 組配對（點擊兩個縮圖交換位置）")
+        self.status_label.configure(text=f"預覽完成：{count} 組配對（單擊選擇交換，雙擊打開檔案）")
     
     def _select_photo(self, idx):
         """選擇照片 - 如果已選中另一張則交換位置"""
@@ -617,6 +664,40 @@ class RitualRenamerApp(ctk.CTk):
             self.selected_video_idx = idx
             _, btn = self.video_items[idx]
             btn.configure(fg_color=("#3B8ED0", "#1F6AA5"))  # 藍色高亮
+    
+    def _open_file(self, file_path):
+        """使用系統預設程式打開檔案"""
+        try:
+            subprocess.run(["open", str(file_path)], check=True)
+        except Exception as e:
+            messagebox.showerror("錯誤", f"無法打開檔案: {e}")
+    
+    def _show_large_preview(self, file_path, is_video=False):
+        """在大型預覽區顯示檔案預覽"""
+        try:
+            # 生成較大的縮圖
+            large_size = (400, 300)
+            thumb_bytes = generate_thumbnail(file_path, is_video=is_video, size=large_size)
+            
+            if thumb_bytes:
+                pil_image = Image.open(io.BytesIO(thumb_bytes))
+                # 保持比例縮放
+                pil_image.thumbnail(large_size, Image.Resampling.LANCZOS)
+                ctk_image = ctk.CTkImage(light_image=pil_image, dark_image=pil_image, size=pil_image.size)
+                self.large_preview_image = ctk_image  # 避免 GC
+                
+                self.large_preview_label.configure(image=ctk_image, text="")
+            else:
+                self.large_preview_label.configure(image=None, text="無法預覽")
+            
+            # 顯示檔案名稱和類型
+            filename = Path(file_path).name
+            file_type = "🎬 影片" if is_video else "📷 照片"
+            self.preview_filename_label.configure(text=f"{file_type}\n{filename}\n\n（雙擊縮圖可用系統程式開啟）")
+            
+        except Exception as e:
+            self.large_preview_label.configure(image=None, text="預覽失敗")
+            self.preview_filename_label.configure(text=str(e))
     
     def _move_item(self, item_type: str, direction: int):
         """移動選中的項目"""
