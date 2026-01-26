@@ -501,6 +501,7 @@ class RitualRenamerApp(ctk.CTk):
         self.video_items = []
         self.photo_thumbnails = []  # 保存縮圖引用避免被 GC
         self.video_thumbnails = []
+        self.video_sequence_vars = []  # 影片序號輸入框變數
         self.selected_photo_idx = None
         self.selected_video_idx = None
         
@@ -604,6 +605,19 @@ class RitualRenamerApp(ctk.CTk):
             # 綁定滑鼠進入事件顯示大圖
             btn.bind("<Enter>", lambda e, idx=i: self._show_large_preview(self.videos[idx].path, is_video=True))
             btn.pack()
+            
+            # 序號輸入框
+            seq_var = ctk.StringVar(value=str(i + 1))
+            seq_entry = ctk.CTkEntry(
+                frame,
+                textvariable=seq_var,
+                width=40,
+                height=24,
+                justify="center"
+            )
+            seq_entry.pack(pady=(2, 0))
+            self.video_sequence_vars.append(seq_var)
+            
             self.video_items.append((video, btn))
         
         # 更新配對數量
@@ -615,7 +629,7 @@ class RitualRenamerApp(ctk.CTk):
         # 建立配對
         self._build_pairs()
         
-        self.status_label.configure(text=f"預覽完成：{count} 組配對（單擊選擇交換，雙擊打開檔案）")
+        self.status_label.configure(text=f"預覽完成：{len(self.photos)} 照片 / {len(self.videos)} 影片（可調整影片下方的序號）")
     
     def _select_photo(self, idx):
         """選擇照片 - 如果已選中另一張則交換位置"""
@@ -733,11 +747,44 @@ class RitualRenamerApp(ctk.CTk):
                 self._select_video(new_idx)
     
     def _build_pairs(self):
-        """根據當前照片/影片順序建立配對"""
+        """根據影片序號輸入框建立配對"""
+        from src.pairing import FilePair
         self.pairs = []
-        for i, (photo, video) in enumerate(zip(self.photos, self.videos), 1):
-            pair = FilePair(photo=photo, video=video, sequence=i)
-            self.pairs.append(pair)
+        
+        # 收集每個影片的序號
+        video_sequences = []
+        for i, video in enumerate(self.videos):
+            if i < len(self.video_sequence_vars):
+                try:
+                    seq = int(self.video_sequence_vars[i].get())
+                except ValueError:
+                    seq = i + 1  # 預設序號
+            else:
+                seq = i + 1
+            video_sequences.append((seq, video))
+        
+        # 按序號分組
+        from collections import defaultdict
+        seq_groups = defaultdict(list)
+        for seq, video in video_sequences:
+            seq_groups[seq].append(video)
+        
+        # 建立配對
+        sub_labels = 'abcdefghijklmnopqrstuvwxyz'
+        for seq in sorted(seq_groups.keys()):
+            videos_in_group = seq_groups[seq]
+            # 找對應的照片
+            photo_idx = seq - 1
+            if 0 <= photo_idx < len(self.photos):
+                photo = self.photos[photo_idx]
+                for j, video in enumerate(videos_in_group):
+                    pair = FilePair(photo=photo, video=video, sequence=seq)
+                    # 設定子序號
+                    if len(videos_in_group) > 1:
+                        pair.sub_sequence = sub_labels[j] if j < len(sub_labels) else str(j)
+                    else:
+                        pair.sub_sequence = ''
+                    self.pairs.append(pair)
     
     def _run(self):
         if self.is_processing:
@@ -881,7 +928,7 @@ class RitualRenamerApp(ctk.CTk):
                             video_ext = ".mp4" if do_compress else pair.video.path.suffix.lower()
                             crf_value = video_crf if do_compress else 18
                             
-                            split_files = split_video(
+                            split_files, split_error = split_video(
                                 input_path=pair.video.path,
                                 output_dir=output_dir,
                                 num_segments=split_count,
@@ -893,7 +940,8 @@ class RitualRenamerApp(ctk.CTk):
                             
                             # 檢查分割是否成功
                             if not split_files:
-                                errors.append(f"{pair.video.path.name}: 影片分割失敗")
+                                error_detail = split_error if split_error else "未知錯誤"
+                                errors.append(f"{pair.video.path.name}: 分割失敗 - {error_detail}")
                                 continue
                             
                             # 計算分割後檔案大小

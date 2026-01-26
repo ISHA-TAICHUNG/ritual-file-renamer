@@ -53,7 +53,7 @@ def split_video(
     ext: str = ".mp4",
     compress: bool = False,
     crf: int = 28
-) -> list[Path]:
+) -> tuple[list[Path], str]:
     """
     將影片平均分割成指定段數
     
@@ -67,16 +67,18 @@ def split_video(
         crf: 壓縮品質參數
         
     Returns:
-        分割後的檔案路徑列表
+        (分割後的檔案路徑列表, 錯誤訊息)
     """
     if num_segments < 2 or num_segments > 10:
-        raise ValueError(f"分割段數必須介於 2-10：{num_segments}")
+        return [], f"分割段數必須介於 2-10：{num_segments}"
+    
+    # 確保輸出目錄存在
+    output_dir.mkdir(parents=True, exist_ok=True)
     
     # 取得影片總長度
     duration = get_video_duration(input_path)
     if duration is None:
-        logger.error(f"無法取得影片長度，跳過分割：{input_path}")
-        return []
+        return [], f"無法取得影片長度：{input_path.name}"
     
     # 計算每段長度
     segment_duration = duration / num_segments
@@ -85,6 +87,7 @@ def split_video(
     sub_labels = 'abcdefghij'
     
     output_files = []
+    errors = []
     
     for i in range(num_segments):
         start_time = i * segment_duration
@@ -108,17 +111,13 @@ def split_video(
                 str(output_path)
             ]
         else:
-            # 不壓縮：使用 copy 模式（快速但可能不精確）
-            # 為了精確分割，還是使用重新編碼但保持高品質
+            # 不壓縮：先嘗試 copy 模式（快速）
             cmd = [
                 'ffmpeg', '-y',
                 '-ss', str(start_time),
                 '-i', str(input_path),
                 '-t', str(segment_duration),
-                '-c:v', 'libx264',
-                '-crf', '18',  # 高品質
-                '-preset', 'fast',
-                '-c:a', 'aac', '-b:a', '192k',
+                '-c', 'copy',
                 '-movflags', '+faststart',
                 str(output_path)
             ]
@@ -135,17 +134,49 @@ def split_video(
                 output_files.append(output_path)
                 logger.info(f"分割完成：{output_name}")
             else:
-                logger.warning(f"分割失敗 ({output_name}): {result.stderr[:200]}")
+                # 如果 copy 模式失敗，嘗試重新編碼
+                if not compress and 'copy' in ' '.join(cmd):
+                    cmd_reencode = [
+                        'ffmpeg', '-y',
+                        '-ss', str(start_time),
+                        '-i', str(input_path),
+                        '-t', str(segment_duration),
+                        '-c:v', 'libx264',
+                        '-crf', '18',
+                        '-preset', 'fast',
+                        '-c:a', 'aac', '-b:a', '192k',
+                        '-movflags', '+faststart',
+                        str(output_path)
+                    ]
+                    result2 = subprocess.run(
+                        cmd_reencode,
+                        capture_output=True,
+                        text=True,
+                        timeout=600
+                    )
+                    if result2.returncode == 0 and output_path.exists():
+                        output_files.append(output_path)
+                        logger.info(f"分割完成（重新編碼）：{output_name}")
+                    else:
+                        err_msg = result2.stderr[:200] if result2.stderr else "未知錯誤"
+                        errors.append(f"{output_name}: {err_msg}")
+                        logger.warning(f"分割失敗 ({output_name}): {err_msg}")
+                else:
+                    err_msg = result.stderr[:200] if result.stderr else "未知錯誤"
+                    errors.append(f"{output_name}: {err_msg}")
+                    logger.warning(f"分割失敗 ({output_name}): {err_msg}")
                 
         except subprocess.TimeoutExpired:
+            errors.append(f"{output_name}: 分割超時")
             logger.warning(f"分割超時：{output_name}")
         except FileNotFoundError:
-            logger.error("ffmpeg 未安裝")
-            break
+            return [], "ffmpeg 未安裝，請先安裝 ffmpeg"
         except Exception as e:
+            errors.append(f"{output_name}: {e}")
             logger.warning(f"分割錯誤 ({output_name}): {e}")
     
-    return output_files
+    error_msg = "; ".join(errors) if errors else ""
+    return output_files, error_msg
 
 
 def get_segment_count_from_option(option: str) -> int:
