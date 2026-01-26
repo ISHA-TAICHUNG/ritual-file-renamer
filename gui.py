@@ -790,7 +790,7 @@ class RitualRenamerApp(ctk.CTk):
         if self.is_processing:
             return
         
-        if not self.pairs:
+        if not self.videos or not self.photos:
             # 沒有預覽過，先執行預覽
             input_path = self.input_dir.get()
             if not input_path:
@@ -808,14 +808,16 @@ class RitualRenamerApp(ctk.CTk):
                 # 按順序配對
                 self.photos.sort(key=lambda x: x.path.name)
                 self.videos.sort(key=lambda x: x.path.stat().st_birthtime)
-                self._build_pairs()
             except Exception as e:
-                messagebox.showerror("錯誤", f"配對失敗: {e}")
+                messagebox.showerror("錯誤", f"掃描失敗: {e}")
                 return
-            
-            if not self.pairs:
-                messagebox.showwarning("提示", "沒有找到可配對的檔案")
-                return
+        
+        # 重新建立配對（套用使用者修改的序號）
+        self._build_pairs()
+        
+        if not self.pairs:
+            messagebox.showwarning("提示", "沒有找到可配對的檔案")
+            return
         
         output_path = self.output_dir.get()
         if not output_path:
